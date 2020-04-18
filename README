@@ -1,0 +1,15 @@
+A simple AlpineQuest Trk2GPX converter
+
+Alpine Quest is a very nice GPS app for outdoor activities
+https://www.alpinequest.net/
+
+
+tnx to Philippe Kehl (phkehl)
+https://github.com/phkehl
+
+author of 1st apq2gpx converter
+this job is an attemptative to port the original code
+developed by Philippe in perl to Python
+
+*** CHANGELOG ***
+18 April 2020 1st beta release.  Only TRK supported
