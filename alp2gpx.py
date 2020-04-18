@@ -1,4 +1,24 @@
 #!/usr/bin/python
+'''
+Licensed under the GNU GENERAL PUBLIC LICENSE (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+https://www.gnu.org/licenses/gpl-3.0.html
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS-IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+ 
+tnx to Philippe Kehl (phkehl)
+https://github.com/phkehl
+
+author of 1st apq2gpx converter
+this job is an attemptative to port the original code
+developed by Philippe in perl to Python
+'''
 
 import sys
 from struct import *
@@ -18,8 +38,6 @@ class alp2gpx(object):
         self.outputfile = '%s.gpx' % os.path.splitext(inputfile)[0] 
 
         (self.fileVersion, self.headerSize)= self.check_version()        
-        
-        
         
     def _get_int(self):
         result = self.inputfile.read(4)
@@ -50,7 +68,6 @@ class alp2gpx(object):
         return result.decode('UTF-8')
         
     def _get_int_raw(self):
-        print('jell')
         size = self._get_int()
         value = self.inputfile.read(size)
         result = base64.b64encode(value)
@@ -256,7 +273,7 @@ class alp2gpx(object):
                 node = ET.SubElement(trkpt, 'time')
                 node.text = tz
                 
-        tree.write(open(self.outputfile, 'w'), encoding='utf-8', xml_declaration=True)
+        tree.write(self.outputfile, encoding='utf-8', xml_declaration=True)
         
         
     def parse_trk(self):
