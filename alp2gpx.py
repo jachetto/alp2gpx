@@ -4,16 +4,22 @@ import sys
 from struct import *
 from datetime import datetime
 import base64
+import xml.etree.ElementTree as ET
+from io import BytesIO
+import os
 
 class alp2gpx(object):
-    inputfile = None
+    inputfile, outputfile = None, None
     fileVersion, headerSize = None, None
+    metadata, waypoints, segments = None, None, None 
     
     def __init__(self, inputfile):
         self.inputfile = open(inputfile, "rb")
+        self.outputfile = '%s.gpx' % os.path.splitext(inputfile)[0] 
+
         (self.fileVersion, self.headerSize)= self.check_version()        
         
-        self.parse_trk()
+        
         
     def _get_int(self):
         result = self.inputfile.read(4)
@@ -74,7 +80,7 @@ class alp2gpx(object):
         return result        
     
     def _get_metadata(self, fileVersion):
-        result = []
+        result = {}
         num_of_metaentries = self._get_int()
         for entry in range(num_of_metaentries):
             name_len = self._get_int()
@@ -85,12 +91,11 @@ class alp2gpx(object):
             if data_len == -3:  data = self._get_double()
             if data_len == -4:  data = self._get_int_raw()
             if data_len >= 0:  data = self._get_string(data_len)
-            result.append({name: data})
+            result[name] = data
         
         if fileVersion == 3:
             nmeta_ext = self._get_int()
-            
-        print('Metantries %s' % result)
+
         return result
     
     def _get_location(self):
@@ -146,61 +151,51 @@ class alp2gpx(object):
     def total_track_time(self):
         self.inputfile.seek(60)
         result = self._get_long()
-        print('Total track time %s' % result)
         return result        
         
     def total_track_elevation_gain(self):
         self.inputfile.seek(52)
         result = self._get_double()
-        print('Total elevation gain %s' % result)
         return result        
         
     def total_track_length_due_to_elevation(self):
         self.inputfile.seek(44)
         result = self._get_double()
-        print('Total track length due to elevation %s' % result)
         return result
          
     def total_track_length(self):
         self.inputfile.seek(36)
         result = self._get_double()
-        print('Total track length %s' % result)
         return result
     
     def time_of_first_location(self):
         self.inputfile.seek(28)
         result = datetime.fromtimestamp(self._get_timestamp())
-        print('Time of first location %s' % result)
         return result
     
     def latitude_of_first_location(self):
         self.inputfile.seek(24)
         result = self._get_coordinate()
-        print('Latitude of first location %s' % result)
         return result
     
     def longitude_of_first_location(self):
         self.inputfile.seek(20)
         result = self._get_coordinate()
-        print('Longitude of first location %s' % result)
         return result
     
     def number_of_waypoints(self):
         self.inputfile.seek(16)
         result = self._get_int()     
-        print('Number of waypoints %s' % result)
         return(result)
     
     def number_of_segments(self):
         self.inputfile.seek(12)
         result = self._get_int()     
-        print('Number of segments %s' % result)
         return(result)
      
     def number_of_locations(self):
         self.inputfile.seek(8)
         result = self._get_int()     
-        print('Number of locations %s' % result)
         return(result)
     
         
@@ -208,9 +203,62 @@ class alp2gpx(object):
         self.inputfile.seek(0)
         file_version = self._get_int()
         header_size  = self._get_int()          
-        print('fileVersion=%s headerSize=%s' % (file_version, header_size))
         return (file_version, header_size);
     
+    def write_xml(self):
+        '''
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx version="1.0">
+            <metadata>
+            <desc>description</desc>
+            <link href="" />
+            <time>2020-04-18T13:26:36Z</time>
+            </metadata>
+            <wpt lat="46.57638889" lon="8.89263889">
+                <ele>2372</ele>
+                <name>LAGORETICO</name>
+            </wpt>
+            <trk><name>Example gpx</name><number>1</number><trkseg>
+                <trkpt lat="46.57608333" lon="8.89241667"><ele>2376</ele><time>2007-10-14T10:09:57Z</time></trkpt>
+                <trkpt lat="46.57619444" lon="8.89252778"><ele>2375</ele><time>2007-10-14T10:10:52Z</time></trkpt>
+                <trkpt lat="46.57641667" lon="8.89266667"><ele>2372</ele><time>2007-10-14T10:12:39Z</time></trkpt>
+                <trkpt lat="46.57650000" lon="8.89280556"><ele>2373</ele><time>2007-10-14T10:13:12Z</time></trkpt>
+                <trkpt lat="46.57638889" lon="8.89302778"><ele>2374</ele><time>2007-10-14T10:13:20Z</time></trkpt>
+                <trkpt lat="46.57652778" lon="8.89322222"><ele>2375</ele><time>2007-10-14T10:13:48Z</time></trkpt>
+                <trkpt lat="46.57661111" lon="8.89344444"><ele>2376</ele><time>2007-10-14T10:14:08Z</time></trkpt>
+            </trkseg></trk>
+        </gpx>
+        '''
+        name = self.metadata.get('name', datetime.now().strftime("%Y%m%d-%H%M%S"))
+        
+        root = ET.Element('gpx', version = '1.1', xmlns="http://www.topografix.com/GPX/1/1" )
+        tree = ET.ElementTree(root)
+        metadata = ET.SubElement(root, 'metadata')
+        desc = ET.SubElement(metadata, 'desc')
+        desc.text = name
+        link = ET.SubElement(metadata, 'link', href='https://github.com/jachetto/alp2gpx')
+        
+        for wp in self.waypoints:
+            wpt = ET.SubElement(root, 'wpt', lat = '%s' % wp['location']['lat'], lon = '%s' % wp['location']['lon'] )
+            node = ET.SubElement(wpt, 'ele')
+            node.text = '%s' % wp['location']['alt']
+            node = ET.SubElement(wpt, 'name')
+            node.text = wp['meta']['name']
+        for s in self.segments:
+            trk = ET.SubElement(root, 'trk')
+            trkseg = ET.SubElement(trk, 'trkseg')
+            for p in s:
+                trkpt = ET.SubElement(trkseg, 'trkpt', lat = '%s' % p['lat'], lon = '%s' % p['lon'] )
+                node = ET.SubElement(trkpt, 'ele')
+                node.text = '%s' % p['alt']                
+                d = datetime.fromtimestamp(int(p['ts']))
+                tz = d.strftime("%Y-%m-%dT%H:%M:%SZ")
+                node = ET.SubElement(trkpt, 'time')
+                node.text = tz
+                
+        tree.write(open(self.outputfile, 'w'), encoding='utf-8', xml_declaration=True)
+        
+        
     def parse_trk(self):
         # version 3 (version 2 is the same but uses a different {Metadata} and {Segments} struct
         # - int         file version
@@ -229,7 +277,8 @@ class alp2gpx(object):
         # - {Waypoints}
         # - {Segments}  (version 2)        
         
-       
+        '''
+        JUST FOR API REFERENCE
         number_of_locations = self.number_of_locations()
         number_of_segments = self.number_of_segments()
         number_of_waypoints = self.number_of_waypoints()
@@ -240,12 +289,16 @@ class alp2gpx(object):
         total_track_length_due_to_elevation = self.total_track_length_due_to_elevation()
         total_track_elevation_gain = self.total_track_elevation_gain()
         total_track_time = self.total_track_time()
+        '''
+        
         self.inputfile.seek(self.headerSize+8)
-        metadata = self._get_metadata(self.fileVersion)
-        waypoints = self._get_waypoints()
-        segmentn = self._get_segments(self.fileVersion)
+        self.metadata = self._get_metadata(self.fileVersion)
+        self.waypoints = self._get_waypoints()
+        self.segments = self._get_segments(self.fileVersion)
+        self.write_xml()
         #self.inputfile.seek(0)
    
     
 if __name__ == "__main__":
     q = alp2gpx(sys.argv[1])
+    q.parse_trk()
