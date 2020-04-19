@@ -12,12 +12,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
  
-tnx to Philippe Kehl (phkehl)
-https://github.com/phkehl
 
-author of 1st apq2gpx converter
-this job is an attemptative to port the original code
-developed by Philippe in perl to Python
+Based on flifplip's apq2gpx (https://github.com/phkehl/apq2gpx).
+
+This job is an attempt to port flipflip's original code
+in Perl to Python.
 '''
 
 import sys
