@@ -25,7 +25,7 @@ from struct import *
 from datetime import datetime
 import base64
 import xml.etree.ElementTree as ET
-from io import BytesIO
+import io
 import os
 
 class alp2gpx(object):
@@ -36,9 +36,15 @@ class alp2gpx(object):
     def __init__(self, inputfile):
         self.inputfile = open(inputfile, "rb")
         self.outputfile = '%s.gpx' % os.path.splitext(inputfile)[0] 
-
-        (self.fileVersion, self.headerSize)= self.check_version()        
+        ext = os.path.splitext(inputfile)[1]
+        if ext.lower() == '.trk':
+            self.parse_trk()
+        elif ext.lower() == '.ldk':
+            self.parse_ldk()
+        else:
+            print('File not supported yet')
         
+    
     def _get_int(self):
         result = self.inputfile.read(4)
         return  unpack('>l', result)[0]
@@ -67,6 +73,11 @@ class alp2gpx(object):
         result = self.inputfile.read(size)
         return result.decode('UTF-8')
         
+    def _get_raw(self, size):
+        value = self.inputfile.read(size)
+        #result = base64.b64encode(value)
+        return(value)
+    
     def _get_int_raw(self):
         size = self._get_int()
         value = self.inputfile.read(size)
@@ -76,6 +87,11 @@ class alp2gpx(object):
     def _get_bool(self):
         result = self.inputfile.read(1)
         return unpack('c', result)[0]
+    
+    def _get_pointer(self):
+        result = self.inputfile.read(8)
+        return unpack('>Q', result)[0]
+    
     
     def _get_height(self):
         result = self._get_int()
@@ -109,7 +125,6 @@ class alp2gpx(object):
             if data_len == -4:  data = self._get_int_raw()
             if data_len >= 0:  data = self._get_string(data_len)
             result[name] = data
-        
         if fileVersion == 3:
             nmeta_ext = self._get_int()
 
@@ -164,7 +179,117 @@ class alp2gpx(object):
             result.append({'meta': meta, 'location': location})
         return result
         
+    def _get_additional_data(self, offset):
+        data = ''
+        magic_number = self._get_int()   
+        size = self._get_long()
+        add_offset = self._get_pointer()
+        add_data = self._get_raw(size)
+        data += add_data
+        if add_offset:
+            moreData = self._get_additional_data(add_offset)
+            data += moreData
+        return(data)
+            
+    def _get_node_data(self, node):
+        data = ''
+        self.inputfile.seek(node['offset'])
+        magic_number = self._get_int()   
+        flags = self._get_int()
+        total_size = self._get_long()
+        size = self._get_long()        
+        add_offset = self._get_pointer()    
+        data += self._get_raw(size)
         
+        if add_offset:
+            data += self._get_additional_data(add_offset)
+        
+        return data
+        
+    def _get_node(self, offset, path=None, uuid=None):
+        # {Node}
+        # - int magic number of the node (0x00015555)
+        # - int flags
+        # - pointer {Metadata} position of node metadata
+        # - double reserved
+        # - {NodeEntries} entries of the nod
+        
+        self.inputfile.seek(offset)
+        magig_number_of_the_node = self._get_int()
+        flags  = self._get_int()
+        metadata_pointer = self._get_pointer()
+        node_entries = self._get_long()
+        
+        self.inputfile.seek(metadata_pointer+0x20)
+        metadata = self._get_metadata(2)
+        self.inputfile.seek(node_entries)
+         
+        if path and not uuid:
+            path = '/'
+        elif uuid:
+            if metadata.get('name', ''):
+                path = metadata.get('name')+'/'
+            else:
+                path = '%08X' % uuid
+      
+        node_entries_magic = self._get_int()
+        
+        if node_entries_magic == 0x00025555:
+            n_total = self._get_int()
+            n_child = self._get_int()
+            n_data = self._get_int()
+            add_offset = self._get_pointer()
+            n_empty = n_total - n_child - n_data;
+        elif node_entries_magic == 0x00045555:
+            n_child = self._get_int()
+            n_data = self._get_int()
+            n_empty = 0
+        else:
+            return None
+        
+        child_entries = []
+        for child in range(n_child):
+            offset = self._get_pointer()
+            uuid = self._get_int()
+            child_entries.append({'uuid': uuid, 'offset':offset})
+            
+            
+        self.inputfile.seek(self.inputfile.tell() + n_empty * (8+4))
+        data_entries = []
+        for x in range(n_data):
+            offset = self._get_pointer()
+            uuid = self._get_int()
+            data_entries.append({'offset': offset, 'uuid': uuid, 'path': path})
+            
+        node = []
+        for entry in child_entries:
+            child = self._get_node(entry['offset'], path, entry['uuid']);
+            node.append(child)
+
+        for entry in data_entries:
+            data = self._get_node_data(entry)
+            file_type = unpack('i', data[:4])[0]
+            file_data = data[1:]
+            
+            '''
+            FOR FUTURE REFERENCE
+            type_map = ({'101': 'wpt', '102': 'set', '103':  'rte', '104': 'trk', '105':  'are' });
+            type_str = type_map[file_type]
+            '''
+            
+            if file_type == 104:
+                bytes = io.BytesIO(file_data)
+                self.inputfile = bytes
+                self.inputfile.seek(0)
+                self.parse_trk()
+            else:
+                '''
+                NOT SUPPORTED FILE TYPE
+                FOR NOW
+                '''
+                pass
+              
+            
     def total_track_time(self):
         self.inputfile.seek(60)
         result = self._get_long()
@@ -308,6 +433,7 @@ class alp2gpx(object):
         total_track_time = self.total_track_time()
         '''
         
+        (self.fileVersion, self.headerSize)= self.check_version()    
         self.inputfile.seek(self.headerSize+8)
         self.metadata = self._get_metadata(self.fileVersion)
         self.waypoints = self._get_waypoints()
@@ -316,6 +442,23 @@ class alp2gpx(object):
         #self.inputfile.seek(0)
    
     
+    def parse_ldk(self):
+        # - int       application specific magic number
+        # - int       archive version
+        # - pointer   {Node} position of the root node (always with list entries)
+        # - double    reserved
+        # - double    reserved
+        # - double    reserved
+        # - double    reserved            
+        self.inputfile.seek(0)
+        application_specific_magic_number = self._get_int()
+        archive_version = self._get_int()
+        position_of_the_root_node = self._get_pointer()
+        res1, res2, res3, res4 = self._get_double(), self._get_double(), self._get_double(), self._get_double()
+        
+        root_node = self._get_node(position_of_the_root_node)
+        
+        pass
+        
 if __name__ == "__main__":
     q = alp2gpx(sys.argv[1])
-    q.parse_trk()
