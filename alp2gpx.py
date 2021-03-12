@@ -311,7 +311,7 @@ class alp2gpx(object):
     
     def time_of_first_location(self):
         self.inputfile.seek(28)
-        result = datetime.fromtimestamp(self._get_timestamp())
+        result = datetime.utcfromtimestamp(self._get_timestamp())
         return result
     
     def latitude_of_first_location(self):
@@ -392,7 +392,7 @@ class alp2gpx(object):
                 trkpt = ET.SubElement(trkseg, 'trkpt', lat = '%s' % p['lat'], lon = '%s' % p['lon'] )
                 node = ET.SubElement(trkpt, 'ele')
                 node.text = '%s' % p['alt']                
-                d = datetime.fromtimestamp(int(p['ts']))
+                d = datetime.utcfromtimestamp(int(p['ts']))
                 tz = d.strftime("%Y-%m-%dT%H:%M:%SZ")
                 node = ET.SubElement(trkpt, 'time')
                 node.text = tz
