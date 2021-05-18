@@ -193,7 +193,7 @@ class alp2gpx(object):
                 self._get_int() # skip unknown int
         
         nlocations = self._get_int()
-        print("Nb locations:" , nlocations)
+#         print("Nb locations:" , nlocations)
         result = []
         for n in range(nlocations):
             location = self._get_location(segmentVersion)
@@ -202,7 +202,7 @@ class alp2gpx(object):
             
     def _get_segments(self, segmentVersion):
         num_segments = self._get_int()
-        print("Nb segments:" , num_segments)
+#         print("Nb segments:" , num_segments)
         results = []
         for s in range(num_segments):
             segment = self._get_segment(segmentVersion)
@@ -212,7 +212,7 @@ class alp2gpx(object):
             
     def _get_waypoints(self):
         num_waypoints = self._get_int()
-        print("Nb waypoints:" , num_waypoints)
+#         print("Nb waypoints:" , num_waypoints)
         result = []
         for wp in range(num_waypoints):
             meta = self._get_metadata(self.fileVersion)
@@ -527,7 +527,7 @@ class alp2gpx(object):
         '''
         
         (self.fileVersion, self.headerSize)= self.check_version()    
-        print("Version:", self.fileVersion)
+#         print("Version:", self.fileVersion)
         
         if self.fileVersion <= 3:
             self.inputfile.seek(self.headerSize+8)
@@ -547,7 +547,7 @@ class alp2gpx(object):
 
             # read metatdata
             self.metadata = self._get_metadata(self.fileVersion)
-            print(self.metadata.get('name'))
+#             print(self.metadata.get('name'))
             
             # skip 2 unknown int
             x1 = self._get_int()  
