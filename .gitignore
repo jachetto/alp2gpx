@@ -1,2 +1,6 @@
 *.wpr
 *.wpu
+.DS_Store
+.Rhistory
+*.trk
+
