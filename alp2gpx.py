@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 '''
 Licensed under the GNU GENERAL PUBLIC LICENSE (the "License");
 you may not use this file except in compliance with the License.
@@ -129,20 +129,56 @@ class alp2gpx(object):
 
         return result
     
-    def _get_location(self):
+    def _get_location(self, segmentVersion):
         size = self._get_int()
         lon = self._get_coordinate()
         lat = self._get_coordinate()
-        alt = self._get_height()
-        ts = self._get_timestamp()
+        if segmentVersion <= 3: 
+            alt = self._get_height()
+            ts = self._get_timestamp()
+            
+            acc,bar = None, None
+            
+            if size > 20:
+                acc = self._get_accuracy()
+            if size > 24:
+                bar = self._get_pressure()
         
-        acc,bar = None, None
-        
-        if size > 20:
-            acc = self._get_accuracy()
-        if size > 24:
-            bar = self._get_pressure()
-        
+        elif segmentVersion == 4:
+            size = size - 8     # count used items
+            acc,bar = None, None
+            while size > 0:
+                # read name of data (e=elevation, ...)
+                name = self._get_string(1)
+                if name == "e":
+                    # elevation
+                    alt = self._get_height()
+                    size = size - 5
+                    # print("Altitude" , alt)
+                    continue
+                if name == "t":
+                    # timestamp
+                    ts = self._get_timestamp()
+                    size = size - 9
+                    # print("Time" , ts)
+                    continue
+                if name == "a":
+                    # accuracy
+                    acc = self._get_accuracy()
+                    size = size - 5
+                    # print("accuracy" , acc)
+                    continue
+                if name == "p":
+                    # pressure
+                    bar = self._get_pressure()
+                    size = size - 5
+                    # print("pressure" , bar)
+                    continue
+                
+        else:
+            print("Location format error")
+            exit()
+            
         result = { 'lat': lat, 'lon': lon, 'alt': alt, 'ts': ts, 'acc': acc, 'bar': bar}
         return result
     
@@ -152,16 +188,21 @@ class alp2gpx(object):
             self._get_int()
         else:
             meta = self._get_metadata(segmentVersion)
+            if segmentVersion == 4:
+                self._get_int() # skip unknown int
+                self._get_int() # skip unknown int
         
         nlocations = self._get_int()
+#         print("Nb locations:" , nlocations)
         result = []
         for n in range(nlocations):
-            location = self._get_location()
+            location = self._get_location(segmentVersion)
             result.append(location)
         return result
             
     def _get_segments(self, segmentVersion):
         num_segments = self._get_int()
+#         print("Nb segments:" , num_segments)
         results = []
         for s in range(num_segments):
             segment = self._get_segment(segmentVersion)
@@ -171,6 +212,7 @@ class alp2gpx(object):
             
     def _get_waypoints(self):
         num_waypoints = self._get_int()
+#         print("Nb waypoints:" , num_waypoints)
         result = []
         for wp in range(num_waypoints):
             meta = self._get_metadata(self.fileVersion)
@@ -309,9 +351,13 @@ class alp2gpx(object):
         result = self._get_double()
         return result
     
+    ## TODO: datetime.utcfromtimestamp() vs. datetime.fromtimestamp()
     def time_of_first_location(self):
-        self.inputfile.seek(28)
-        result = datetime.utcfromtimestamp(self._get_timestamp())
+        if self.fileVersion <= 3:
+            self.inputfile.seek(28)
+            result = datetime.fromtimestamp(self._get_timestamp())
+        else:
+            result = datetime.fromtimestamp(self.sumary.get('dte') * 1e-3)
         return result
     
     def latitude_of_first_location(self):
@@ -343,6 +389,8 @@ class alp2gpx(object):
     def check_version(self):
         self.inputfile.seek(0)
         file_version = self._get_int()
+        if file_version > 3:
+            file_version = 4
         header_size  = self._get_int()          
         return (file_version, header_size);
     
@@ -370,14 +418,34 @@ class alp2gpx(object):
             </trkseg></trk>
         </gpx>
         '''
-        name = self.metadata.get('name', datetime.now().strftime("%Y%m%d-%H%M%S"))
+        tsdebut = self.time_of_first_location()
+        if not self.metadata.get('name'):
+            name = tsdebut.strftime("%Y-%m-%d %H:%M:%S")
+            filename = tsdebut.strftime("%y-%m-%d")
+        else:
+            name = tsdebut.strftime("%Y-%m-%d %H:%M:%S") + ' ' + self.metadata.get('name')
+            filename = tsdebut.strftime("%y-%m-%d") + ' ' + self.metadata.get('name')
+
+            # suppress characters not permitted in filename
+            for i in [';', ':', '!', "*", '/', '\\', '.', ','] :
+                filename = filename.replace(i, '-')
+
+            # suppress trailing space
+            filename = filename.strip()
+            
+        # print('Name:', name)
         
-        root = ET.Element('gpx', version = '1.1', xmlns="http://www.topografix.com/GPX/1/1" )
+        root = ET.Element('gpx', xmlns="http://www.topografix.com/GPX/1/1", version = '1.1', creator="Alp2gpx" )
+        root.text = '\n'
         tree = ET.ElementTree(root)
         metadata = ET.SubElement(root, 'metadata')
+        metadata.text = '\n'
+        metadata.tail = '\n'
         desc = ET.SubElement(metadata, 'desc')
         desc.text = name
+        desc.tail = '\n'
         link = ET.SubElement(metadata, 'link', href='https://github.com/jachetto/alp2gpx')
+        link.tail = '\n'
         
         for wp in self.waypoints:
             wpt = ET.SubElement(root, 'wpt', lat = '%s' % wp['location']['lat'], lon = '%s' % wp['location']['lon'] )
@@ -385,17 +453,30 @@ class alp2gpx(object):
             node.text = '%s' % wp['location']['alt']
             node = ET.SubElement(wpt, 'name')
             node.text = wp['meta']['name']
+            
         for s in self.segments:
             trk = ET.SubElement(root, 'trk')
+            trk.text = '\n'
+            trk.tail = '\n'
+            tname = ET.SubElement(trk, 'name')
+            tname.text = name
+            tname.tail = '\n'
+
             trkseg = ET.SubElement(trk, 'trkseg')
+            trkseg.text = '\n'
+            trkseg.tail = '\n'
             for p in s:
                 trkpt = ET.SubElement(trkseg, 'trkpt', lat = '%s' % p['lat'], lon = '%s' % p['lon'] )
+                trkpt.text = '\n'
+                trkpt.tail = '\n'
                 node = ET.SubElement(trkpt, 'ele')
                 node.text = '%s' % p['alt']                
+                node.tail = '\n'
                 d = datetime.utcfromtimestamp(int(p['ts']))
                 tz = d.strftime("%Y-%m-%dT%H:%M:%SZ")
                 node = ET.SubElement(trkpt, 'time')
                 node.text = tz
+                node.tail = '\n'
                 
         tree.write(self.outputfile, encoding='utf-8', xml_declaration=True)
         
@@ -418,6 +499,19 @@ class alp2gpx(object):
         # - {Waypoints}
         # - {Segments}  (version 2)        
         
+        # version 4 
+        # - int         ?? constant = 50 50 0e 01 ???
+        # - int         offset of first byte after {Metadata}
+        # - {summary}   strcuture with same format as metadata,
+        #               contain first lon, lat, timestamp
+        # - int         ?? constant = 00 00 00 03 ???
+        # - int         ?? constant = ff ff ff ff ???
+        # - {Metadata}  (version 2)
+        # - int         ?? 
+        # - int         ?? constant = ff ff ff ff ???
+        # - {Waypoints}
+        # - {Segments}  (version 4), the format of location structure changed.
+        
         '''
         JUST FOR API REFERENCE
         number_of_locations = self.number_of_locations()
@@ -433,11 +527,39 @@ class alp2gpx(object):
         '''
         
         (self.fileVersion, self.headerSize)= self.check_version()    
-        self.inputfile.seek(self.headerSize+8)
-        self.metadata = self._get_metadata(self.fileVersion)
-        self.waypoints = self._get_waypoints()
-        self.segments = self._get_segments(self.fileVersion)
-        self.write_xml()
+#         print("Version:", self.fileVersion)
+        
+        if self.fileVersion <= 3:
+            self.inputfile.seek(self.headerSize+8)
+            self.metadata = self._get_metadata(self.fileVersion)
+            self.waypoints = self._get_waypoints()
+            self.segments = self._get_segments(self.fileVersion)
+            self.write_xml()
+        else:            
+            # read sumary data
+            self.inputfile.seek(8)
+            self.sumary = self._get_metadata(self.fileVersion)
+            # print("time of first loc 2:", self.sumary.get('dte'))
+
+            # skip 2 unknown int
+            x1 = self._get_int() 
+            x2 = self._get_int()  
+
+            # read metatdata
+            self.metadata = self._get_metadata(self.fileVersion)
+#             print(self.metadata.get('name'))
+            
+            # skip 2 unknown int
+            x1 = self._get_int()  
+            x2 = self._get_int()  
+
+            # read waypoints (not tested with waypoints in file)
+            self.waypoints = self._get_waypoints()
+
+            # read track
+            self.segments = self._get_segments(self.fileVersion)
+
+            self.write_xml()
         #self.inputfile.seek(0)
    
     
