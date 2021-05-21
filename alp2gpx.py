@@ -26,15 +26,17 @@ import base64
 import xml.etree.ElementTree as ET
 import io
 import os
+import argparse
 
 class alp2gpx(object):
     inputfile, outputfile = None, None
     fileVersion, headerSize = None, None
     metadata, waypoints, segments = None, None, None 
     
-    def __init__(self, inputfile):
+    def __init__(self, inputfile, outputfile):
         self.inputfile = open(inputfile, "rb")
-        self.outputfile = '%s.gpx' % os.path.splitext(inputfile)[0] 
+        self.outputfile = outputfile
+        
         ext = os.path.splitext(inputfile)[1]
         if ext.lower() == '.trk':
             self.parse_trk()
@@ -582,4 +584,16 @@ class alp2gpx(object):
         pass
         
 if __name__ == "__main__":
-    q = alp2gpx(sys.argv[1])
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("input", help = "input file to convert (.trk, etc.)")
+    parser.add_argument("-o", "--output", 
+                        default = None,  # Handled after parser.parse_args()
+                        help = "output base name (default input file path and base name)")
+
+    args = parser.parse_args()
+    if args.output is None:
+        args.output = '%s.gpx' % os.path.splitext(args.input)[0]
+
+    
+    q = alp2gpx(args.input, args.output)
