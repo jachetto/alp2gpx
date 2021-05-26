@@ -28,6 +28,7 @@ import io
 import os
 import argparse
 
+
 class alp2gpx(object):
     inputfile, outputfile = None, None
     fileVersion, headerSize = None, None
@@ -94,12 +95,25 @@ class alp2gpx(object):
         return unpack('>Q', result)[0]
     
     
-    def _get_height(self):
+    def _get_height(self, lon=None,lat=None):
         result = self._get_int()
         if result ==  -999999999:
             return None
         else:
             result *= 1e-3
+        try:
+            from pyproj import CRS
+            from pyproj.transformer import TransformerGroup, Transformer
+            tg = TransformerGroup(4979, 5773)
+            tg.download_grids(verbose=True)
+            transformer_3d = Transformer.from_crs(
+                CRS("EPSG:4979").to_3d(),
+                CRS("EPSG:5773").to_3d(),
+                always_xy=True,
+            )
+            result = transformer_3d.transform(lon, lat, result)[2]
+        except:
+            pass        
         return result
     
     def _get_accuracy(self):
@@ -136,7 +150,7 @@ class alp2gpx(object):
         lon = self._get_coordinate()
         lat = self._get_coordinate()
         if segmentVersion <= 3: 
-            alt = self._get_height()
+            alt = self._get_height(lon, lat)
             ts = self._get_timestamp()
             
             acc,bar = None, None
@@ -145,7 +159,7 @@ class alp2gpx(object):
                 acc = self._get_accuracy()
             if size > 24:
                 bar = self._get_pressure()
-        
+            
         elif segmentVersion == 4:
             size = size - 8     # count used items
             acc,bar = None, None
@@ -154,7 +168,7 @@ class alp2gpx(object):
                 name = self._get_string(1)
                 if name == "e":
                     # elevation
-                    alt = self._get_height()
+                    alt = self._get_height(lon, lat)
                     size = size - 5
                     # print("Altitude" , alt)
                     continue
@@ -180,7 +194,7 @@ class alp2gpx(object):
         else:
             print("Location format error")
             exit()
-            
+
         result = { 'lat': lat, 'lon': lon, 'alt': alt, 'ts': ts, 'acc': acc, 'bar': bar}
         return result
     
