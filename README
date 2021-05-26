@@ -9,9 +9,14 @@ Many thanks!
 This job is an attempt to port flipflip's original code
 in Perl to Python.
 
+Special thanks to @dhicks (https://github.com/dhicks) for the TRK 4 parser and the I/O arguments
+Special thanks to @ydespond (https://github.com/ydespond) for the suggestions about to better calculate the elevation and the timestamp
+
 A special thanks to my friends 'Amici Alpinisti'. 
 The friends with whom i share my hiking adventures
 
 *** CHANGELOG ***
+25 May 2021 Added support for TRK version 4,  dhicks (https://github.com/dhicks)
+25 May 2021 Added Arguments for I/O, dhicks (https://github.com/dhicks)
+19 April 2020 Added support for LDK 
 18 April 2020 1st beta release.  Only TRK supported
-19 April 2020 Added support for LDK
