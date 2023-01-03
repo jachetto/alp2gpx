@@ -30,11 +30,14 @@ import argparse
 
 class alp2gpx(object):
     inputfile, outputfile = None, None
+    fname = None
     fileVersion, headerSize = None, None
     metadata, waypoints, segments = None, None, None 
     
     def __init__(self, inputfile, outputfile):
         self.inputfile = open(inputfile, "rb")
+        self.fname = inputfile
+       
         self.outputfile = outputfile
         
         ext = os.path.splitext(inputfile)[1]
@@ -45,7 +48,8 @@ class alp2gpx(object):
         else:
             print('File not supported yet')
         
-    
+        print(self.fname, self.fileVersion)
+        
     def _get_int(self):
         result = self.inputfile.read(4)
         return  unpack('>l', result)[0]
@@ -70,9 +74,39 @@ class alp2gpx(object):
         result = self._get_long() * 1e-3;
         return result
     
+
     def _get_string(self, size):
+        res = None
         result = self.inputfile.read(size)
-        return result.decode('UTF-8')
+     
+        codecs = [
+                'UTF-8', "ascii", "big5", "big5hkscs", "cp037", "cp273", "cp424", "cp437", "cp500", "cp720", 
+                "cp737", "cp775", "cp850", "cp852", "cp855", "cp856", "cp857", "cp858", "cp860",
+                "cp861", "cp862", "cp863", "cp864", "cp865", "cp866", "cp869", "cp874", "cp875",
+                "cp932", "cp949", "cp950", "cp1006", "cp1026", "cp1125", "cp1140", "cp1250",
+                "cp1251", "cp1252", "cp1253", "cp1254", "cp1255", "cp1256", "cp1257",
+                "cp1258", "cp65001", "euc_jp", "euc_jis_2004", "euc_jisx0213", "euc_kr", "gb2312",
+                "gbk", "gb18030", "hz", "iso2022_jp", "iso2022_jp_1", "iso2022_jp_2",
+                "iso2022_jp_2004", "iso2022_jp_3", "iso2022_jp_ext", "iso2022_kr", "latin_1",
+                "iso8859_2", "iso8859_3", "iso8859_4", "iso8859_5", "iso8859_6", "iso8859_7",
+                "iso8859_8", "iso8859_9", "iso8859_10", "iso8859_11", "iso8859_13", "iso8859_14",
+                "iso8859_15", "iso8859_16", "johab", "koi8_r", "koi8_t", "koi8_u", "kz1048",
+                "mac_cyrillic", "mac_greek", "mac_iceland", "mac_latin2", "mac_roman",
+                "mac_turkish", "ptcp154", "shift_jis", "shift_jis_2004", "shift_jisx0213",
+                "utf_32", "utf_32_be", "utf_32_le", "utf_16", "utf_16_be", "utf_16_le", "utf_7",
+                "utf_8", "utf_8_sig",
+        ]
+        for charset in codecs:
+            try:
+                res = result.decode(charset)
+                break
+            except:
+                continue
+        if res:
+            return res
+        else:
+            print("die", self.fname, self.fileVersion)
+            exit()
         
     def _get_raw(self, size):
         value = self.inputfile.read(size)
@@ -94,12 +128,25 @@ class alp2gpx(object):
         return unpack('>Q', result)[0]
     
     
-    def _get_height(self):
+    def _get_height(self, lon, lat):
         result = self._get_int()
         if result ==  -999999999:
             return None
         else:
             result *= 1e-3
+        try:
+            from pyproj import CRS
+            from pyproj.transformer import TransformerGroup, Transformer
+            tg = TransformerGroup(4979, 5773)
+            tg.download_grids(verbose=True)
+            transformer_3d = Transformer.from_crs(
+                CRS("EPSG:4979").to_3d(),
+                CRS("EPSG:5773").to_3d(),
+                always_xy=True,
+            )
+            result = transformer_3d.transform(lon, lat, result)[2]
+        except Exception as e:
+            pass        
         return result
     
     def _get_accuracy(self):
@@ -135,48 +182,72 @@ class alp2gpx(object):
         size = self._get_int()
         lon = self._get_coordinate()
         lat = self._get_coordinate()
+        
+        
+        alt = 0
         if segmentVersion <= 3: 
-            alt = self._get_height()
+            alt = self._get_height(lon, lat)
             ts = self._get_timestamp()
-            
+         
             acc,bar = None, None
             
             if size > 20:
                 acc = self._get_accuracy()
             if size > 24:
                 bar = self._get_pressure()
-        
+
         elif segmentVersion == 4:
             size = size - 8     # count used items
             acc,bar = None, None
             while size > 0:
                 # read name of data (e=elevation, ...)
                 name = self._get_string(1)
+                              
                 if name == "e":
                     # elevation
-                    alt = self._get_height()
+                    alt = self._get_height(lon, lat)
                     size = size - 5
-                    # print("Altitude" , alt)
+                    #print("Altitude" , alt)
                     continue
                 if name == "t":
                     # timestamp
                     ts = self._get_timestamp()
                     size = size - 9
-                    # print("Time" , ts)
+                    #print("Time" , ts)
                     continue
                 if name == "a":
                     # accuracy
                     acc = self._get_accuracy()
                     size = size - 5
-                    # print("accuracy" , acc)
+                    #print("accuracy" , acc)
                     continue
                 if name == "p":
                     # pressure
                     bar = self._get_pressure()
                     size = size - 5
-                    # print("pressure" , bar)
+                    #print("pressure" , bar)
                     continue
-                
+                if name == "n":
+                    #cell network info: cell type in byte 1 (generation in tens, protocol in units), signal strength inbyte 2 (from 1=BAD to 127=GOOD) (added in OM 3.8b / AQ 2.2.9b)
+                    ct = self.inputfile.read(2)
+                    size = size - 3
+                    continue
+                if name == "b":
+                    #battery level (0-100%) (added in OM 3.8b / AQ 2.2.9b)
+                    bt = self.inputfile.read(1)
+                    #print("bt", int.from_bytes(bt, "big"))
+                    size = size - 2
+                    continue
+                if name == "s":
+                    #satellites in use per constellation (UNKNOWN, GPS, SBAS, GLONASS, QZSS, BEIDOU, GALILEO, IRNSS) (added in OM 3.8b / AQ 2.2.9b)
+                    sat =  self.inputfile.read(8)
+                    size = size - 9
+                    continue
+                if name == "v":
+                    #vertical accuracy (meters*1e2) (added in OM 3.10b / AQ 2.3.2c)
+                    va = self._get_int()
+                    size = size - 5
+                    continue
         else:
             print("Location format error")
             exit()
@@ -195,7 +266,7 @@ class alp2gpx(object):
                 self._get_int() # skip unknown int
         
         nlocations = self._get_int()
-#         print("Nb locations:" , nlocations)
+        #print("Nb locations:" , nlocations)
         result = []
         for n in range(nlocations):
             location = self._get_location(segmentVersion)
@@ -204,7 +275,7 @@ class alp2gpx(object):
             
     def _get_segments(self, segmentVersion):
         num_segments = self._get_int()
-#         print("Nb segments:" , num_segments)
+#       print("Nb segments:" , num_segments)
         results = []
         for s in range(num_segments):
             segment = self._get_segment(segmentVersion)
@@ -214,11 +285,11 @@ class alp2gpx(object):
             
     def _get_waypoints(self):
         num_waypoints = self._get_int()
-#         print("Nb waypoints:" , num_waypoints)
+        
         result = []
         for wp in range(num_waypoints):
             meta = self._get_metadata(self.fileVersion)
-            location = self._get_location()
+            location = self._get_location(self.fileVersion)
             result.append({'meta': meta, 'location': location})
         return result
         
@@ -541,15 +612,15 @@ class alp2gpx(object):
             # read sumary data
             self.inputfile.seek(8)
             self.sumary = self._get_metadata(self.fileVersion)
+            
             # print("time of first loc 2:", self.sumary.get('dte'))
 
             # skip 2 unknown int
             x1 = self._get_int() 
             x2 = self._get_int()  
 
-            # read metatdata
+            # read metadata
             self.metadata = self._get_metadata(self.fileVersion)
-#             print(self.metadata.get('name'))
             
             # skip 2 unknown int
             x1 = self._get_int()  
@@ -560,7 +631,7 @@ class alp2gpx(object):
 
             # read track
             self.segments = self._get_segments(self.fileVersion)
-
+            
             self.write_xml()
         #self.inputfile.seek(0)
    
